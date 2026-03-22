@@ -1,5 +1,5 @@
 {
-  "name": "agentdiff",
+  "name": "agent-session-diff",
   "version": "0.1.0",
   "type": "module",
   "description": "Post-session CLI that diffs the repo and produces a structured summary",
