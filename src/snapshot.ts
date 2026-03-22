@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fromThrowable } from '@valencets/resultkit'
@@ -7,8 +7,8 @@ import { DiffErrorCode, type DiffError } from './types.js'
 
 const SESSION_FILE = '.agent-session'
 
-const safeExecSync = fromThrowable(
-  (cmd: string, dir: string) => execSync(cmd, { cwd: dir, encoding: 'utf-8' }).trim(),
+const safeGit = fromThrowable(
+  (args: readonly string[], dir: string) => execFileSync('git', [...args], { cwd: dir, encoding: 'utf-8' }).trim(),
   (e): DiffError => ({
     code: DiffErrorCode.GIT_FAILED,
     message: e instanceof Error ? e.message : String(e)
@@ -32,7 +32,7 @@ const safeReadFile = fromThrowable(
 )
 
 export function saveSnapshot (dir: string): Result<string, DiffError> {
-  return safeExecSync('git rev-parse HEAD', dir)
+  return safeGit(['rev-parse', 'HEAD'], dir)
     .andThen((hash) => {
       const filePath = join(dir, SESSION_FILE)
       return safeWriteFile(filePath, hash).map(() => hash)

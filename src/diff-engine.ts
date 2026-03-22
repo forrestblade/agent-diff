@@ -1,10 +1,19 @@
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { fromThrowable, ok, err, type Result } from '@valencets/resultkit'
 import { DiffErrorCode, FileStatus, type CommitInfo, type DiffError, type FileChange, type SessionReport } from './types.js'
 import { parseDependencyChanges } from './dep-parser.js'
 
-const safeExec = fromThrowable(
-  (cmd: string, dir: string) => execSync(cmd, { cwd: dir, encoding: 'utf-8' }).trim(),
+const GIT_REF_PATTERN = /^[a-zA-Z0-9._/^~{}-]+$/
+
+function validateRef (ref: string): Result<string, DiffError> {
+  if (!GIT_REF_PATTERN.test(ref)) {
+    return err({ code: DiffErrorCode.GIT_FAILED, message: `Invalid git ref: ${ref}` })
+  }
+  return ok(ref)
+}
+
+const safeGit = fromThrowable(
+  (args: readonly string[], dir: string) => execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim(),
   (e): DiffError => ({
     code: DiffErrorCode.GIT_FAILED,
     message: e instanceof Error ? e.message : String(e)
@@ -126,20 +135,26 @@ function computeDuration (commits: readonly CommitInfo[]): string {
 }
 
 export function generateReport (fromCommit: string, toCommit: string, dir: string): Result<SessionReport, DiffError> {
-  const nameStatusResult = safeExec(`git diff ${fromCommit}..${toCommit} --name-status`, dir)
+  const fromRef = validateRef(fromCommit)
+  if (fromRef.isErr()) return err(fromRef.error)
+  const toRef = validateRef(toCommit)
+  if (toRef.isErr()) return err(toRef.error)
+
+  const range = `${fromRef.value}..${toRef.value}`
+
+  const nameStatusResult = safeGit(['diff', range, '--name-status'], dir)
   if (nameStatusResult.isErr()) return err(nameStatusResult.error)
 
-  const numstatResult = safeExec(`git diff ${fromCommit}..${toCommit} --numstat`, dir)
+  const numstatResult = safeGit(['diff', range, '--numstat'], dir)
   if (numstatResult.isErr()) return err(numstatResult.error)
 
-  const logResult = safeExec(`git log ${fromCommit}..${toCommit} --format=%H%n%s%n%an%n%aI --reverse`, dir)
+  const logResult = safeGit(['log', range, '--format=%H%n%s%n%an%n%aI', '--reverse'], dir)
   if (logResult.isErr()) return err(logResult.error)
 
-  const shortstatResult = safeExec(`git diff ${fromCommit}..${toCommit} --shortstat`, dir)
+  const shortstatResult = safeGit(['diff', range, '--shortstat'], dir)
   if (shortstatResult.isErr()) return err(shortstatResult.error)
 
-  const depDiffResult = safeExec(`git diff ${fromCommit}..${toCommit} -- package.json`, dir)
-  // dep diff failing is non-fatal (package.json may not exist)
+  const depDiffResult = safeGit(['diff', range, '--', 'package.json'], dir)
   const depDiffOutput = depDiffResult.isOk() ? depDiffResult.value : ''
 
   const files = parseFileChanges(nameStatusResult.value, numstatResult.value)
